@@ -31,165 +31,139 @@ class ModelFitResult:
         return "\n".join(lines)
 
 def pretrain_agents(n_pretrain_episodes, lr, env):
-    """Pretrain SARSA and FORWARD agents using zero rewards to learn transitions."""
-    
-    # Initialize agents
-    sarsa = SARSA(num_actions=env.NUM_ACTIONS,
-                  output_offset=env.output_states_offset,
-                  reward_map=env.reward_map,
-                  learning_rate=lr)
-    
-    forward = FORWARD(num_states=env.num_states,
-                     num_actions=env.NUM_ACTIONS,
-                     output_offset=env.output_states_offset,
-                     reward_map=env.reward_map,
-                     learning_rate=lr)
+    sarsa = SARSA(num_actions=env.NUM_ACTIONS, output_offset=env.output_states_offset,
+                  reward_map=env.reward_map, learning_rate=lr)
+    forward = FORWARD(num_states=env.num_states, num_actions=env.NUM_ACTIONS,
+                      output_offset=env.output_states_offset, reward_map=env.reward_map,
+                      learning_rate=lr)
     
     for _ in range(n_pretrain_episodes):
         state = env.reset()
         done = False
-        
         while not done:
-            # Choose action using current Q-values
             Q_vals = sarsa.get_Q_values(state)
             action = int(np.argmax(Q_vals))
-            
-            # Take action and observe next state
             next_state, reward, done, _ = env.step((MDP.HUMAN_AGENT_INDEX, action))
-            
-            # Set reward to zero for pretraining
-            reward = 0
-            
-            # Get next action for SARSA update
+            reward = 0  
             next_Q_vals = sarsa.get_Q_values(next_state)
             next_action = int(np.argmax(next_Q_vals))
-            
-            # Update both models with zero reward
             sarsa.optimize(reward, action, next_action, state, next_state)
             forward.optimize(state, reward, action, next_state, env.is_flexible)
-            
             state = next_state
-            
     return sarsa, forward
+ 
 
-def compute_neg_log_likelihood_arbitrator(params, param_names, behavior_df, env, n_pretrain_episodes):
-    """Compute negative log likelihood for given arbitrator parameters, processing each episode separately."""
-    threshold, rl_lr, amp_mb_to_mf, amp_mf_to_mb, temperature, est_lr = params
-    total_nll = 0.0
-    
-    # Split data into episodes based on block numbers
-    episodes = []
-    current_episode = []
-    prev_block = behavior_df.iloc[0]['block']
-    
-    for _, row in behavior_df.iterrows():
-        if row['block'] != prev_block:
-            episodes.append(pd.DataFrame(current_episode))
-            current_episode = []
-            prev_block = row['block']
-        current_episode.append(row)
-    
-    if current_episode:
-        episodes.append(pd.DataFrame(current_episode))
-    
-    # Process each episode separately
-    for episode_df in episodes:
-        # Reset and pretrain agents for each episode
-        sarsa_sim, forward_sim = pretrain_agents(n_pretrain_episodes, est_lr, env)
-        
-        # Initialize arbitrator for this episode
-        arb = Arbitrator(AssocRelEstimator(rl_lr),
-                        BayesRelEstimator(thereshold=threshold),
-                        amp_mb_to_mf=amp_mb_to_mf,
-                        amp_mf_to_mb=amp_mf_to_mb,
-                        temperature=temperature)
-        
-        # Process each trial in the episode
-        for _, row in episode_df.iterrows():
-            # Extract states and actions
-            s1, s2, s3 = int(row['orig_S1'])-1, int(row['orig_S2'])-1, int(row['orig_S3'])-1
-            a1, a2 = int(row['A1'])-1, int(row['A2'])-1
-            final_reward = float(row['reward'])
-            is_flexible = int(row['block_setting']) == 1
-            
-            # First step: S1 -> S2
-            mf_Q1 = sarsa_sim.get_Q_values(s1)
-            mb_Q1 = forward_sim.get_Q_values(s1)
-            integrated_Q1 = arb.get_Q_values(mf_Q1, mb_Q1)
-            exp_Q1 = np.exp(np.array(integrated_Q1) * temperature)
-            policy1 = exp_Q1 / np.sum(exp_Q1)
-            prob1 = max(policy1[a1], 1e-10)
-            total_nll += -np.log(prob1)
-            
-            # Update models for first step
-            spe1 = forward_sim.optimize(s1, 0, a1, s2, is_flexible)
-            rpe1 = sarsa_sim.optimize(0, a1, a2, s1, s2)
-            arb.add_pe(rpe1, spe1)
-            
-            # Second step: S2 -> S3
-            mf_Q2 = sarsa_sim.get_Q_values(s2)
-            mb_Q2 = forward_sim.get_Q_values(s2)
-            integrated_Q2 = arb.get_Q_values(mf_Q2, mb_Q2)
-            exp_Q2 = np.exp(np.array(integrated_Q2) * temperature)
-            policy2 = exp_Q2 / np.sum(exp_Q2)
-            prob2 = max(policy2[a2], 1e-10)
-            total_nll += -np.log(prob2)
-            
-            # Update models for second step
-            spe2 = forward_sim.optimize(s2, final_reward, a2, s3, is_flexible)
-            if is_flexible:
-                rpe2 = sarsa_sim.optimize(final_reward, a2, 0, s2, s3)
-            else:
-                norm_reward = final_reward if final_reward > 0 else 0
-                rpe2 = sarsa_sim.optimize(norm_reward, a2, 0, s2, s3)
-            
-            arb.add_pe(rpe2, spe2)
-    
-    return total_nll
 
-def optimization_run_arbitrator(args):
-    """Single optimization run with random initial parameters."""
-    initial_params, param_names, behavior_df, n_pretrain_episodes, bounds, env = args
-    
-    objective = lambda params: compute_neg_log_likelihood_arbitrator(
-        params, param_names, behavior_df, env, n_pretrain_episodes)
-    
-    result = minimize(objective, initial_params, method='L-BFGS-B', bounds=bounds)
-    return result.x, result.fun
+def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params, total_simul=20):
+    """
+    Simulate a single episode, running `total_simul` simulations in parallel.
+    """
+    """
+    Run a single simulation of an episode.
+    This is used to parallelize `total_simul` runs inside `simulate_episode`.
+    """
+    threshold, rl_lr, amp_mb_to_mf, amp_mf_to_mb, temperature, est_lr = arb_params
+
+    # Pretrain agents
+    sarsa_sim, forward_sim = pretrain_agents(n_pretrain_episodes, est_lr, env)
+
+    # Initialize arbitrator
+    arb = Arbitrator(AssocRelEstimator(rl_lr),
+                     BayesRelEstimator(thereshold=threshold),
+                     amp_mb_to_mf=amp_mb_to_mf,
+                     amp_mf_to_mb=amp_mf_to_mb,
+                     temperature=temperature)
+
+    sim_nll = 0.0
+    prev_goal = None  
+
+    for _, row in episode_df.iterrows():
+        s1, s2, s3 = int(row['orig_S1']) - 1, int(row['orig_S2']) - 1, int(row['orig_S3']) - 1
+        a1, a2 = int(row['A1']) - 1, int(row['A2']) - 1
+        final_reward = float(row['reward'])
+        is_flexible = int(row['goal_state']) == -1
+        current_goal = row['goal_state']
+
+        if prev_goal is not None and current_goal != prev_goal:
+            try:
+                forward_sim.backward_update(current_goal)
+            except AttributeError:
+                pass
+        prev_goal = current_goal  
+
+        # --- First decision step ---
+        mf_Q1, mb_Q1 = sarsa_sim.get_Q_values(s1), forward_sim.get_Q_values(s1)
+        integrated_Q1 = arb.get_Q_values(mf_Q1, mb_Q1)
+        exp_Q1 = np.exp(np.array(integrated_Q1) * temperature)
+        policy1 = exp_Q1 / np.sum(exp_Q1)
+        prob1 = max(policy1[a1], 1e-10)
+        sim_nll += -np.log(prob1)
+
+        spe1, rpe1 = forward_sim.optimize(s1, 0, a1, s2, is_flexible), sarsa_sim.optimize(0, a1, a2, s1, s2)
+        arb.add_pe(rpe1, spe1)
+
+        # --- Second decision step ---
+        mf_Q2, mb_Q2 = sarsa_sim.get_Q_values(s2), forward_sim.get_Q_values(s2)
+        integrated_Q2 = arb.get_Q_values(mf_Q2, mb_Q2)
+        exp_Q2 = np.exp(np.array(integrated_Q2) * temperature)
+        policy2 = exp_Q2 / np.sum(exp_Q2)
+        prob2 = max(policy2[a2], 1e-10)
+        sim_nll += -np.log(prob2)
+
+        spe2 = forward_sim.optimize(s2, final_reward, a2, s3, is_flexible)
+        rpe2 = sarsa_sim.optimize(final_reward, a2, 0, s2, s3) if is_flexible else sarsa_sim.optimize(max(final_reward, 0), a2, 0, s2, s3)
+        arb.add_pe(rpe2, spe2)
+
+    return sim_nll
+
+def compute_neg_log_likelihood_arbitrator(params, param_names, behavior_df, env, n_pretrain_episodes, total_simul=50):
+    """
+    Compute total negative log likelihood over all episodes.
+    Uses multiprocessing for episode-level simulations.
+    """
+    arb_params = params  # Tuple of parameters
+    episodes = [episode_df for _, episode_df in behavior_df.groupby('block')]
+
+    # Prepare arguments as tuples for starmap
+    episode_args = [(ep, env, n_pretrain_episodes, arb_params, total_simul) for ep in episodes]
+
+    with mp.Pool() as pool:
+        results = pool.starmap(simulate_episode, episode_args)  # Use starmap instead of map
+    return np.sum(results)
+
 
 class ArbitratorModelFitter:
-    def __init__(self, n_optimization_runs=20, n_pretrain_episodes=10):
+    def __init__(self, n_optimization_runs=50, n_pretrain_episodes=1, total_simul=50):
         self.n_optimization_runs = n_optimization_runs
         self.n_pretrain_episodes = n_pretrain_episodes
-        self.result = None
+        self.total_simul = total_simul
+        self.results = []
 
     def fit(self, behavior_df, env, param_bounds, param_names):
-        """Fit the arbitrator model to behavioral data."""
-        # Generate random initial parameters
-        initial_params_list = [
-            [np.random.uniform(low, high) for (low, high) in param_bounds]
-            for _ in range(self.n_optimization_runs)
-        ]
+        """
+        Fit the arbitrator model to behavioral data.
+        Uses a for-loop (not multiprocessing) to track progress.
+        """
+        self.results = []
+        best_params = None
+        best_nll = float('inf')
+
+        for i in tqdm(range(self.n_optimization_runs), desc="Optimization Progress"):
+            initial_params = [np.random.uniform(low, high) for (low, high) in param_bounds]
+
+            objective = lambda params: compute_neg_log_likelihood_arbitrator(
+                params, param_names, behavior_df, env, self.n_pretrain_episodes, total_simul=self.total_simul)
+            
+            result = minimize(objective, initial_params, method='L-BFGS-B', bounds=param_bounds)
+            self.results.append((result.x, result.fun))
+            print(f"Run {i+1}/{self.n_optimization_runs}: NLL = {result.fun:.4f}")
+            if result.fun < best_nll:
+                best_nll = result.fun
+                best_params = result.x
+            print(f"  Best NLL so far: {best_nll:.4f}")
+            print(f"  Best params so far: {best_params}")
         
-        # Prepare arguments for parallel optimization
-        args_list = [
-            (params, param_names, behavior_df, self.n_pretrain_episodes, param_bounds, env)
-            for params in initial_params_list
-        ]
-        
-        # Run parallel optimization
-        results = []
-        with mp.Pool() as pool:
-            for params, nll in tqdm(pool.imap_unordered(optimization_run_arbitrator, args_list),
-                                  total=self.n_optimization_runs,
-                                  desc="Optimizing Arbitrator"):
-                results.append((params, nll))
-        
-        # Find best parameters
-        best_params, best_nll = min(results, key=lambda r: r[1])
-        
-        # Store results
-        self.result = ModelFitResult(
+        self.best_result = ModelFitResult(
             parameters=dict(zip(param_names, best_params)),
             neg_log_likelihood=best_nll,
             bic_score=2 * best_nll + len(param_bounds) * np.log(len(behavior_df)),
@@ -197,31 +171,21 @@ class ArbitratorModelFitter:
             parameter_bounds=param_bounds,
             parameter_names=param_names
         )
-        return self.result
+        return self.best_result
 
 if __name__ == "__main__":
-    # Example usage
-    # Read and preprocess behavioral data
-    behavior_df = pd.read_csv('../behav_data/SUB001_BHV.csv')
+    behavior_df = pd.read_csv('./behav_data/SUB002_BHV.csv')
     behavior_df.columns = ['block', 'trial', 'block_setting', 'orig_S1', 'orig_S2', 'orig_S3',
-                          'A1', 'A2', 'RT(A1)', 'RT(A2)', 'onset(S1)', 'onset(S2)', 'onset(S3)',
-                          'onset(A1)', 'onset(A2)', 'reward', 'total_reward', 'goal_state']
+                           'A1', 'A2', 'RT(A1)', 'RT(A2)', 'onset(S1)', 'onset(S2)', 'onset(S3)',
+                           'onset(A1)', 'onset(A2)', 'reward', 'total_reward', 'goal_state']
     
-    param_bounds = [
-        (0.1, 0.9),  # threshold
-        (0.01, 0.9), # rl_learning_rate
-        (0.1, 10.0), # amp_mb_to_mf
-        (0.1, 10.0),   # amp_mf_to_mb
-        (0.01, 1.0), # temperature
-        (0.01, 0.9), # estimator_learning_rate
-    ]
-    
-    param_names = [
-        'threshold', 'rl_learning_rate', 'amp_mb_to_mf', 'amp_mf_to_mb', 
-        'temperature', 'estimator_learning_rate', 
-    ]
+    param_bounds = [(0.1, 0.9), (0.01, 0.9), (0.1, 10.0), (0.1, 10.0), (0.01, 1.0), (0.01, 0.9)]
+    param_names = ['threshold', 'rl_learning_rate', 'amp_mb_to_mf', 'amp_mf_to_mb', 'temperature', 'estimator_learning_rate']
     
     env = MDP()
-    fitter = ArbitratorModelFitter(n_optimization_runs=200)
-    fit_result = fitter.fit(behavior_df, env, param_bounds, param_names)
-    print(fit_result)
+    
+    fitter = ArbitratorModelFitter(n_optimization_runs=50, n_pretrain_episodes=1, total_simul=25)
+    best_fit_result = fitter.fit(behavior_df, env, param_bounds, param_names)
+    
+    print("\nBEST PARAMETER SET FOUND:")
+    print(best_fit_result)

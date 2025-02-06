@@ -107,5 +107,41 @@ class FORWARD:
 
         self.policy_fn = lambda s: softmax(self.Q_fwd[s], self.beta)
 
-    def bwd_update(self, bwd_idf):
-        self.bwd_idf = bwd_idf
+    def backward_update(self, current_goal):
+        """
+        Update the transition model and re-compute Q-values to adapt to a new goal context.
+        
+        The note specifies that:
+          - When current_goal == -1 (flexible), then all outcome states (with indices >= output_offset)
+            use their default rewards from self.reward_map.
+          - When current_goal is one of [6, 7, 8], then only the outcome corresponding to that goal should
+            yield its associated reward while all other outcome transitions are set to 0.
+          
+        (NOTE: Here we assume that in nine-state mode, outcome states are 5,6,7,8.
+         According to the note, for example, if current_goal == 6 then outcome state 6 is the 40 reward state,
+         if current_goal == 7 then outcome state 7 is the 20 reward state, and if current_goal == 8 then outcome state 8
+         is the 10 reward state.)
+        """
+        for state in range(self.num_states):
+            for action in range(self.num_actions):
+                new_trans = []
+                for next_state in range(self.num_states):
+                    prob, _ = self.T[state][action][next_state]
+                    # Only modify rewards for outcome states.
+                    if next_state >= self.output_offset:
+                        if current_goal == -1:
+                            # Flexible: use the default reward from reward_map.
+                            reward = self.reward_map[next_state - self.output_offset]
+                        else:
+                            # Specific goal: only the matching outcome state gets its designated reward.
+                            if next_state == current_goal:
+                                # Map outcome state to its proper reward.
+                                reward = self.reward_map[next_state - self.output_offset]
+                            else:
+                                reward = 0
+                    else:
+                        reward = 0
+                    new_trans.append((prob, reward))
+                self.T[state][action] = new_trans
+        # Recompute Q-values across the whole state space.
+        self._Q_fitting()
