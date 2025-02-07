@@ -162,13 +162,14 @@ class ArbitratorModelFitter:
         best_params = None
         best_nll = float('inf')
 
-        for i in tqdm(range(self.n_optimization_runs), desc="Optimization Progress"):
-            initial_params = [np.random.uniform(low, high) for (low, high) in param_bounds]
-
-            objective = lambda params: compute_neg_log_likelihood_arbitrator(
+        current_params = [0.5, 0.3, 1.0, 1.0, 0.2, 0.2]
+        objective = lambda params: compute_neg_log_likelihood_arbitrator(
                 params, param_names, behavior_df, env, self.n_pretrain_episodes, total_simul=self.total_simul)
-            
-            result = minimize(objective, initial_params, method='L-BFGS-B', bounds=param_bounds)
+        for i in tqdm(range(self.n_optimization_runs), desc="Optimization Progress"):
+            #result = minimize(objective, initial_params, method='L-BFGS-B', bounds=param_bounds)
+            result = minimize(objective, current_params, method='Nelder-Mead',
+                              options={'maxiter': 3, 'disp': False})
+            current_params = result.x
             self.results.append((result.x, result.fun))
             print(f"Run {i+1}/{self.n_optimization_runs}: NLL = {result.fun:.4f}")
             if result.fun < best_nll:
