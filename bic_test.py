@@ -62,7 +62,7 @@ def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params, total_sim
     Run a single simulation of an episode.
     This is used to parallelize `total_simul` runs inside `simulate_episode`.
     """
-    threshold, rl_lr, amp_mb_to_mf, amp_mf_to_mb, temperature, est_lr = arb_params
+    threshold, rl_lr, max_trans_rate_mb_to_mf, max_trans_rate_mf_to_mb, temperature, est_lr = arb_params
 
     # Pretrain agents
     sarsa_sim, forward_sim = pretrain_agents(n_pretrain_episodes, est_lr, env)
@@ -70,12 +70,12 @@ def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params, total_sim
     # Initialize arbitrator
     arb = Arbitrator(AssocRelEstimator(rl_lr),
                      BayesRelEstimator(thereshold=threshold),
-                     amp_mb_to_mf=amp_mb_to_mf,
-                     amp_mf_to_mb=amp_mf_to_mb,
+                     max_trans_rate_mb_to_mf=max_trans_rate_mb_to_mf,
+                     max_trans_rate_mf_to_mb=max_trans_rate_mf_to_mb,
                      temperature=temperature)
 
     sim_nll = 0.0
-    prev_goal = None  
+    prev_goal = None
 
     for _, row in episode_df.iterrows():
         s1, s2, s3 = int(row['orig_S1']) - 1, int(row['orig_S2']) - 1, int(row['orig_S3']) - 1
@@ -180,11 +180,11 @@ if __name__ == "__main__":
                            'onset(A1)', 'onset(A2)', 'reward', 'total_reward', 'goal_state']
     
     param_bounds = [(0.1, 0.9), (0.01, 0.9), (0.1, 10.0), (0.1, 10.0), (0.01, 1.0), (0.01, 0.9)]
-    param_names = ['threshold', 'rl_learning_rate', 'amp_mb_to_mf', 'amp_mf_to_mb', 'temperature', 'estimator_learning_rate']
+    param_names = ['threshold', 'rl_learning_rate', 'max_trans_rate_mb_to_mf', 'max_trans_rate_mf_to_mb', 'temperature', 'estimator_learning_rate']
     
     env = MDP()
     
-    fitter = ArbitratorModelFitter(n_optimization_runs=50, n_pretrain_episodes=1, total_simul=25)
+    fitter = ArbitratorModelFitter(n_optimization_runs=100, n_pretrain_episodes=2, total_simul=25)
     best_fit_result = fitter.fit(behavior_df, env, param_bounds, param_names)
     
     print("\nBEST PARAMETER SET FOUND:")
