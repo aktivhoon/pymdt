@@ -22,7 +22,7 @@ class MDP(gym.Env):
         self.nine_states_mode = self.NINE_STATES_MODE
         
         # Reward setup
-        self.reward_map = [0, 10, 20, 40]  # corresponding to states 5, 6, 7, 8
+        self.reward_map = [0, 40, 20, 10]  # corresponding to states 5, 6, 7, 8
         self.reward_map_copy = self.reward_map.copy()
         
         # Action and state space setup
