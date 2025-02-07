@@ -84,9 +84,23 @@ def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params, total_sim
         is_flexible = int(row['goal_state']) == -1
         current_goal = row['goal_state']
 
+        if prev_goal is None:
+            if is_flexible:
+                arb.p_mb = 0.2
+                arb.p_mf = 0.8
+            else:
+                arb.p_mb = 0.8
+                arb.p_mf = 0.2
+
         if prev_goal is not None and current_goal != prev_goal:
             try:
                 forward_sim.backward_update(current_goal)
+                if is_flexible:
+                    arb.p_mb = 0.2
+                    arb.p_mf = 0.8
+                else:
+                    arb.p_mb = 0.8
+                    arb.p_mf = 0.2
             except AttributeError:
                 pass
         prev_goal = current_goal  
