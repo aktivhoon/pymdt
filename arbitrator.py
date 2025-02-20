@@ -124,13 +124,15 @@ class Arbitrator:
         self.mb_rel_estimator = mb_rel_estimator if mb_rel_estimator is not None else BayesRelEstimator(thereshold=zpe_threshold)
         self.A_alpha          = max_trans_rate_mf_to_mb
         self.A_beta           = max_trans_rate_mb_to_mf
-        self.B_alpha          = log((1 / mf_to_mb_bound) * self.A_alpha - 1)
-        self.B_beta           = log((1 / mb_to_mf_bound) * self.A_beta - 1)
+        self.B_alpha          = log((self.A_alpha / mf_to_mb_bound) - 1)
+        self.B_beta           = log((self.A_beta / mb_to_mf_bound) - 1)
         self.MB_ONLY = MB_ONLY
         self.MF_ONLY = MF_ONLY
         self.p_mb             = p_mb
-        if MB_ONLY: self.p_mb = 0.9999
-        elif MF_ONLY: self.p_mb = 0.0001
+        if MB_ONLY: 
+            self.p_mb = 0.9999
+        elif MF_ONLY: 
+            self.p_mb = 0.0001
         self.p_mf             = 1 - self.p_mb #self.p_mb
         self.amp_mb_to_mf     = amp_mb_to_mf
         self.amp_mf_to_mb     = amp_mf_to_mb
@@ -142,7 +144,6 @@ class Arbitrator:
         chi_mb = self.mb_rel_estimator.add_pe(spe)  # reliability of model based
         alpha = self.A_alpha / (1 + exp(self.B_alpha * chi_mf))  # transition rate MF->MB
         sum_amp = self.amp_mb_to_mf + self.amp_mf_to_mb
-        #alpha *= self.amp_mf_to_mb / sum_amp  # multiply by amplitude
         beta = self.A_beta / (1 + exp(self.B_beta * chi_mb))  # transition rate MB->MF
         #beta *= self.amp_mb_to_mf / sum_amp
         d_p_mb = alpha * (1 - self.p_mb) - beta * self.p_mb
@@ -164,24 +165,16 @@ class Arbitrator:
         """
         Q = []
         assert len(mf_Q_values) == len(mb_Q_values), "Q value length not match"
-        if self.episode_number > self.CONTROL_resting / 2:
-            for action in range(len(mf_Q_values)):
-                Q.append(self.p_mf * mf_Q_values[action] + self.p_mb * mb_Q_values[action]) #Q.append(self.p_mf * mf_Q_values[action] + self.p_mb * mf_Q_values[action])
-
-            """Stochastically choose action based on Q value using softmax function
-            """
-            #Q_sum = sum(Q)
-            Q_m = list(map(lambda x : exp(x*self.temperature), Q))
-            softmax_denom = sum(Q_m)
-            #print(Q, Q_m , softmax_denom )
-            for action in range(len(Q) - 1):
-                p_action =  exp(Q[action]*self.temperature) / softmax_denom #exp(self.temperature * Q[action]) / exp(self.temperature * Q_sum), P(s,a)
-                #print("p_action : ", p_action)
-                if random() < p_action:
-                    return action
-            return len(Q) - 1
-        else:
-            return randint(0, len(mf_Q_values) - 1)
+        # (Modified) Compute integrated Q values.
+        Q = np.array(mf_Q_values) * self.p_mf + np.array(mb_Q_values) * self.p_mb
+        
+        # (Modified) Compute softmax probabilities over all actions.
+        exp_Q = np.exp(Q * self.temperature)
+        probs = exp_Q / np.sum(exp_Q)
+        
+        # (Modified) Sample an action from the full probability distribution.
+        action = np.random.choice(len(Q), p=probs)
+        return action
 
     def get_Q_values(self, mf_Q_values, mb_Q_values):
         Q = []

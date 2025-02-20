@@ -26,35 +26,25 @@ class SARSA:
         return np.random.choice(self.num_actions, p=probs)
 
     def get_Q_values(self, state):
-        if state >= self.output_offset:
-            reward_idx = self.reward_map.index(self.reward_map[state - self.output_offset])
-            state = reward_idx + self.output_offset
         return self.Q_sarsa[state]
 
-    def optimize(self, reward, action_taken, next_action, state, next_state):
+    def update(self, reward, action_taken, next_action, state, next_state):
+        if next_action is None:
+            next_action = self.action(next_state)
         rpe = self._get_rpe(reward, action_taken, next_action, state, next_state)
-        
-        if state >= self.output_offset:
-            reward_idx = self.reward_map.index(self.reward_map[state - self.output_offset])
-            state = reward_idx + self.output_offset
             
         self.Q_sarsa[state][action_taken] += self.learning_rate * rpe
         return rpe
 
     def _get_rpe(self, reward, action_taken, next_action, state, next_state):
-        if state >= self.output_offset:
-            reward_idx = self.reward_map.index(self.reward_map[state - self.output_offset])
-            state = reward_idx + self.output_offset
-        if next_state >= self.output_offset:
-            reward_idx = self.reward_map.index(self.reward_map[next_state - self.output_offset])
-            next_state = reward_idx + self.output_offset
-            
         return (reward + 
                 self.discount_factor * self.Q_sarsa[next_state][next_action] - 
                 self.Q_sarsa[state][action_taken])
 
     def reset(self):
         self.Q_sarsa = defaultdict(lambda: np.zeros(self.num_actions))
+        for state in range(9):
+            self.Q_sarsa[state] = np.zeros(self.num_actions)
 
     def copy(self, other):
         for state in range(9):

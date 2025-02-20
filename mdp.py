@@ -9,7 +9,7 @@ class MDP(gym.Env):
     
     HUMAN_AGENT_INDEX = 0
     STAGES = 2
-    TRANSITION_PROBABILITY = [0.9, 0.1]
+    TRANSITION_PROBABILITY = [0.5, 0.5]
     NUM_ACTIONS = 2
     POSSIBLE_OUTPUTS = [0, 10, 20, 40]
     NINE_STATES_MODE = True
@@ -22,7 +22,7 @@ class MDP(gym.Env):
         self.nine_states_mode = self.NINE_STATES_MODE
         
         # Reward setup
-        self.reward_map = [0, 40, 20, 10]  # corresponding to states 5, 6, 7, 8
+        self.reward_map = [40, 20, 10, 0]  # corresponding to states 5, 6, 7, 8
         self.reward_map_copy = self.reward_map.copy()
         
         # Action and state space setup
@@ -45,6 +45,30 @@ class MDP(gym.Env):
             self.output_states_offset = 5
             
         self.observation_space = [spaces.Discrete(self.num_states)]
+
+        # State transition mappings
+        self.state_transitions = {
+            0: {  # From state 0
+                0: [1, 2],      # Action 0 leads to states 1 or 2
+                1: [3, 4]       # Action 1 leads to states 3 or 4
+            },
+            1: {  # From state 1
+                0: [7, 8],      # Action 0 leads to states 7 or 8
+                1: [8, 5]       # Action 1 leads to states 8 or 5
+            },
+            2: {  # From state 2
+                0: [8, 5],      # Action 0 leads to states 8 or 5
+                1: [7, 5]       # Action 1 leads to states 7 or 5
+            },
+            3: {  # From state 3
+                0: [7, 6],      # Action 0 leads to states 7 or 6
+                1: [6, 5]       # Action 1 leads to states 6 or 5
+            },
+            4: {  # From state 4
+                0: [7, 5],      # Action 0 leads to states 7 or 5
+                1: [5, 6]       # Action 1 leads to states 5 or 6
+            }
+        }
         
         # Goal state tracking
         self.is_flexible = 1
@@ -63,28 +87,30 @@ class MDP(gym.Env):
         if action[0] != self.HUMAN_AGENT_INDEX:
             raise ValueError("Only human agent actions are supported")
             
-        state = self.human_state * self.possible_actions + \
-                choice(range(action[1] * len(self.trans_prob) + 1,
-                           (action[1] + 1) * len(self.trans_prob) + 1),
-                      1, True, self.trans_prob)[0]
-                
-        reward = self._get_reward(state)
+        current_state = self.human_state
+        action_choice = action[1]
         
-        if self.nine_states_mode and state > 4:
-            state = self.output_states_indx[state-5] + 5
+        # Handle state transitions based on current state and action
+        if current_state in self.state_transitions:
+            possible_next_states = self.state_transitions[current_state][action_choice]
+            next_state = choice(possible_next_states, 1, p=self.trans_prob)[0]
+        else:
+            # If current state is a terminal state (5-8), stay in the same state
+            next_state = current_state
             
-        self.human_state = state
-        done = state >= self.output_states_offset
+        self.human_state = next_state
+        reward = self._get_reward(next_state)
+        done = next_state >= self.output_states_offset
         
         if done:
-            self.visited_goal_state = state
+            self.visited_goal_state = next_state
             
         return self.human_state, reward, done, {}
 
     def _get_reward(self, state):
         """Calculate reward for given state"""
         if state >= self.output_states_offset:
-            return self.output_states[state - self.output_states_offset]
+            return self.reward_map[state - self.output_states_offset]
         return 0
 
     def reset(self):
