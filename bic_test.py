@@ -134,7 +134,6 @@ def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params):
                     arb.p_mf = 0.2
 
             if prev_goal is not None and current_goal != prev_goal:
-                # print(f"The original was: {prev_goal} and the current is: {current_goal}")
                 try:
                     backward_update = True
                     if is_flexible:
@@ -150,10 +149,6 @@ def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params):
             # --- First decision step ---
             if backward_update:
                 forward_sim.backward_update(current_goal)
-                # print(f"forward backward update: {forward_sim.Q_fwd}")
-                # import time
-                # time.sleep(100)
-                # print(f"backward update")
             mf_Q1, mb_Q1 = sarsa_sim.get_Q_values(s1), forward_sim.get_Q_values(s1)
             integrated_Q1 = arb.get_Q_values(mf_Q1, mb_Q1)
             exp_Q1 = np.exp(np.array(integrated_Q1) * temperature)
@@ -167,7 +162,6 @@ def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params):
             # --- Second decision step ---
             if backward_update:
                 forward_sim.backward_update(current_goal)
-                # print(f"backward update")
             mf_Q2, mb_Q2 = sarsa_sim.get_Q_values(s2), forward_sim.get_Q_values(s2)
             integrated_Q2 = arb.get_Q_values(mf_Q2, mb_Q2)
             exp_Q2 = np.exp(np.array(integrated_Q2) * temperature)
