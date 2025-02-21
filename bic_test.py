@@ -175,7 +175,7 @@ def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params):
             arb.add_pe(rpe2, spe2)
     return sim_nll
 
-def compute_neg_log_likelihood_arbitrator(params, param_names, behavior_df, env, n_pretrain_episodes):
+def compute_neg_log_likelihood_arbitrator(params, param_names, behavior_df, env, n_pretrain_episodes, n_simul):
     """
     Compute total negative log likelihood over all episodes.
     Uses multiprocessing for episode-level simulations.
@@ -194,16 +194,18 @@ def compute_neg_log_likelihood_arbitrator(params, param_names, behavior_df, env,
     episode_df = [behavior_df.iloc[start:end+1].reset_index(drop=True) 
                 for start, end in zip(episode_starts, episode_ends)]
     
-    results = simulate_episode(episode_df, env, n_pretrain_episodes, arb_params)
-    return results
+    with mp.Pool(processes=min(n_simul, mp.cpu_count())) as pool:
+        results = pool.starmap(simulate_episode, [(episode_df, env, n_pretrain_episodes, arb_params)] * n_simul)
+    return sum(results)/n_simul
     
 
 
 class ArbitratorModelFitter:
-    def __init__(self, n_optimization_runs=10, n_pretrain_episodes=2, max_iter=200):
+    def __init__(self, n_optimization_runs=10, n_pretrain_episodes=2, max_iter=200, sim_runs=10):
         self.n_optimization_runs = n_optimization_runs
         self.n_pretrain_episodes = n_pretrain_episodes
         self.max_iter = max_iter
+        self.sim_runs = sim_runs
         self.results = []
 
     def fit(self, behavior_df, env, param_bounds, param_names):
@@ -220,7 +222,7 @@ class ArbitratorModelFitter:
 
         current_params = [np.random.randint(1, 21) * ((UB[j] - LB[j]) / 20) + LB[j] for j in range(len(LB))]
         objective = lambda params: compute_neg_log_likelihood_arbitrator(
-                params, param_names, behavior_df, env, self.n_pretrain_episodes)
+                params, param_names, behavior_df, env, self.n_pretrain_episodes, self.sim_runs)
 
         for i in tqdm(range(self.n_optimization_runs), desc="Optimization Progress"):
             error_count = 0
@@ -259,18 +261,18 @@ class ArbitratorModelFitter:
         return self.best_result
 
 if __name__ == "__main__":
-    behavior_df = pd.read_csv('./behav_data/dep_behav1.csv', header=None)
+    behavior_df = pd.read_csv('./behav_data/SUB001_BHV.csv', header=None)
     behavior_df.columns = ['block', 'trial', 'block_setting', 'orig_S1', 'orig_S2', 'orig_S3',
                            'A1', 'A2', 'RT(A1)', 'RT(A2)', 'onset(S1)', 'onset(S2)', 'onset(S3)',
                            'onset(A1)', 'onset(A2)', 'reward', 'total_reward', 'goal_state']
     
-    param_bounds = [(0.1, 0.9), (0.01, 0.9), (0.1, 10.0), (0.1, 10.0), (0.01, 1.0), (0.01, 0.9)]
-    # param_bounds = [(0.3, 0.7), (0.1, 0.35), (0.02, 20.0), (0.02, 20.0), (0.01, 0.5), (0.05, 0.2)]
+    # param_bounds = [(0.1, 0.9), (0.01, 0.9), (0.1, 10.0), (0.1, 10.0), (0.01, 1.0), (0.01, 0.9)]
+    param_bounds = [(0.3, 0.7), (0.1, 0.35), (0.1, 20.0), (0.02, 20.0), (0.01, 0.5), (0.05, 0.2)]
     param_names = ['threshold', 'rl_learning_rate', 'max_trans_rate_mb_to_mf', 'max_trans_rate_mf_to_mb', 'temperature', 'estimator_learning_rate']
     
     env = MDP()
     
-    fitter = ArbitratorModelFitter(n_optimization_runs=10, n_pretrain_episodes=80)
+    fitter = ArbitratorModelFitter(n_optimization_runs=10, n_pretrain_episodes=80, sim_runs=10)
     best_fit_result = fitter.fit(behavior_df, env, param_bounds, param_names)
     
     print("\nBEST PARAMETER SET FOUND:")
