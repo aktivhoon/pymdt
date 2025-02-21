@@ -28,7 +28,7 @@ class SARSA:
     def get_Q_values(self, state):
         return self.Q_sarsa[state]
 
-    def update(self, reward, action_taken, next_action, state, next_state):
+    def update(self, state, action_taken, reward, next_state, next_action=None):
         if next_action is None:
             next_action = self.action(next_state)
         rpe = self._get_rpe(reward, action_taken, next_action, state, next_state)
