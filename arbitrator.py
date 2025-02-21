@@ -129,6 +129,7 @@ class Arbitrator:
         self.MB_ONLY = MB_ONLY
         self.MF_ONLY = MF_ONLY
         self.p_mb             = p_mb
+        self.time_step        = 0.1
         if MB_ONLY: 
             self.p_mb = 0.9999
         elif MF_ONLY: 
@@ -143,15 +144,17 @@ class Arbitrator:
         chi_mf = self.mf_rel_estimator.add_pe(rpe)  # reliability of model free
         chi_mb = self.mb_rel_estimator.add_pe(spe)  # reliability of model based
         alpha = self.A_alpha / (1 + exp(self.B_alpha * chi_mf))  # transition rate MF->MB
-        sum_amp = self.amp_mb_to_mf + self.amp_mf_to_mb
         beta = self.A_beta / (1 + exp(self.B_beta * chi_mb))  # transition rate MB->MF
+        tau = 1.0/(alpha + beta)
         #beta *= self.amp_mb_to_mf / sum_amp
-        d_p_mb = alpha * (1 - self.p_mb) - beta * self.p_mb
-        self.p_mb += alpha * (1 - self.p_mb) - beta * self.p_mb
+        # d_p_mb = alpha * (1 - self.p_mb) - beta * self.p_mb
+        # self.p_mb += alpha * (1 - self.p_mb) - beta * self.p_mb
+        p_mb_inf = alpha * tau
+        self.p_mb = p_mb_inf + (self.p_mb - p_mb_inf) * exp(-self.time_step/tau)
         if self.MB_ONLY: self.p_mb = 0.9999
         elif self.MF_ONLY: self.p_mb = 0.0001
         self.p_mf = 1 - self.p_mb
-        return chi_mf, chi_mb, self.p_mb, d_p_mb
+        return chi_mf, chi_mb, self.p_mb, None
 
     def action(self, mf_Q_values, mb_Q_values):
         """Choose an action
