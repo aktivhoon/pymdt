@@ -76,10 +76,10 @@ def pretrain_with_csv(env, temp=0.1):
         current_goal = row['goal_state']
 
         forward.update(s1, 0, a1, s2, current_goal)
-        sarsa.update(0, a1, a2, s1, s2)
+        sarsa.update(s1, a1, 0, s2)
 
         forward.update(s2, final_reward, a2, s3, current_goal)
-        sarsa.update(final_reward, a2, 0, s2, s3)
+        sarsa.update(s2, a2, final_reward, s3)
 
     # print(f"Pretraining complete. Forward and SARSA agents are ready.")
     # print(f"Forward Q-values: {forward.Q_fwd}")
@@ -120,7 +120,9 @@ def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params):
             a1, a2 = int(row['A1']) - 1, int(row['A2']) - 1
             final_reward = float(row['reward'])
             is_flexible = int(row['goal_state']) == -1
-            current_goal = row['goal_state'] - 1
+            current_goal = int(row['goal_state'])
+            if current_goal != -1:
+                current_goal = int(current_goal) - 1
             backward_update = False
 
             if prev_goal is None:
@@ -159,7 +161,7 @@ def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params):
             prob1 = max(policy1[a1], 1e-10)
             sim_nll += -np.log(prob1)
 
-            spe1, rpe1 = forward_sim.update(s1, 0, a1, s2, current_goal), sarsa_sim.update(0, a1, a2, s1, s2)
+            spe1, rpe1 = forward_sim.update(s1, 0, a1, s2, current_goal), sarsa_sim.update(s1, a1, 0, s2)
             arb.add_pe(rpe1, spe1)
 
             # --- Second decision step ---
@@ -174,10 +176,8 @@ def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params):
             sim_nll += -np.log(prob2)
 
             spe2 = forward_sim.update(s2, final_reward, a2, s3, current_goal)
-            rpe2 = sarsa_sim.update(final_reward, a2, 0, s2, s3)
+            rpe2 = sarsa_sim.update(s2, a2, final_reward, s3)
             arb.add_pe(rpe2, spe2)
-    # import time
-    # time.sleep(100)
     return sim_nll
 
 def compute_neg_log_likelihood_arbitrator(params, param_names, behavior_df, env, n_pretrain_episodes):
