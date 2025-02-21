@@ -46,9 +46,9 @@ def pretrain_agents(n_pretrain_episodes, env):
             action = np.random.choice(env.NUM_ACTIONS)
             next_state, reward, done, _ = env.step((MDP.HUMAN_AGENT_INDEX, action))
             next_action = np.random.choice(env.NUM_ACTIONS)
-            pretrain_reward = 0
-            sarsa.update(pretrain_reward, action, next_action, state, next_state)
-            forward.update(state, reward, action, next_state, env.bwd_idf, pretrain=True)
+            sarsa.update(state, action, reward, next_state)
+            current_goal = -1
+            forward.update(state, reward, action, next_state, current_goal)
             from collections import defaultdict
             T_values = defaultdict(lambda: np.zeros(env.NUM_ACTIONS))
             for s in range(5):
@@ -100,8 +100,8 @@ def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params):
     threshold, rl_lr, max_trans_rate_mb_to_mf, max_trans_rate_mf_to_mb, temperature, est_lr = arb_params
 
     # Pretrain agents
-    #sarsa_sim, forward_sim = pretrain_agents(n_pretrain_episodes, env)
-    sarsa_sim, forward_sim = pretrain_with_csv(env, temperature)
+    sarsa_sim, forward_sim = pretrain_agents(n_pretrain_episodes, env)
+    #sarsa_sim, forward_sim = pretrain_with_csv(env, temperature)
     sarsa_sim.lr = est_lr
     forward_sim.lr = est_lr
 
