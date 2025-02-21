@@ -5,6 +5,7 @@ from scipy.optimize import minimize
 import multiprocessing as mp
 from tqdm import tqdm
 from dataclasses import dataclass
+import traceback
 
 from mdp import MDP
 from sarsa import SARSA
@@ -234,6 +235,7 @@ class ArbitratorModelFitter:
                     # Reinitialize parameters randomly within the bounds, similar to MATLAB's randi initialization.
                     current_params = [np.random.uniform(LB[j], UB[j]) for j in range(len(LB))]
                     print(f"Optimization error: {e}. Reinitializing parameters. Count: {error_count}")
+                    traceback.print_exc()
             if not success:
                 print("Failed to optimize after 1000 reinitializations. Moving on.")
     
