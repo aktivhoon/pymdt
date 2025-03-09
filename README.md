@@ -8,12 +8,12 @@ Python Implementation of two step MDT, with fitting algorithm
 
 ### SARSA Model
 - [x] Confirmed that the SARSA model is working
-- [] Exactly same results as the MATLAB code
+- [ ] Exactly same results as the MATLAB code
 
 ### Arbitration
 - [x] Confirmed that the arbitration model is working
-- [] Exactly same results as the MATLAB code
+- [ ] Exactly same results as the MATLAB code
 
 ### Fitting
 - [x] Confirmed that the fitting algorithm is working
-- [] Exactly same results as the MATLAB code
+- [ ] Exactly same results as the MATLAB code
