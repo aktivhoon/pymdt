@@ -7,11 +7,22 @@ from tqdm import tqdm
 from dataclasses import dataclass
 import traceback
 
+from utils import simulate_episode
 from mdp import MDP
-from sarsa import SARSA
-from forward import FORWARD
-from arbitrator import Arbitrator, BayesRelEstimator, AssocRelEstimator
 from fminsearchbnd import fminsearchbnd
+
+def argparser():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--filename', type=str, required=True, help='Name of the behavior data file: must have .csv extension, with _pre.csv as well for pretraining')
+    parser.add_argument('--n_optimization_runs', type=int, default=10, help='Number of optimization runs')
+    parser.add_argument('--n_pretrain_episodes', type=int, default=2, help='Number of pretraining episodes')
+    parser.add_argument('--max_iter', type=int, default=200, help='Maximum number of iterations for optimization')
+    parser.add_argument('--sim_runs', type=int, default=10, help='Number of simulations per episode')
+    parser.add_argument('--pretrain_scenario', type=str, default='csv', help='Pretraining scenario: csv or agents')
+    parser.add_argument('--output_dir', type=str, default='./results', help='Output directory for results')
+
+    return parser
 
 @dataclass
 class ModelFitResult:
@@ -32,153 +43,9 @@ class ModelFitResult:
         lines.append(f"AIC Score: {self.aic_score:.4f}")
         return "\n".join(lines)
 
-def pretrain_agents(n_pretrain_episodes, env):
-    sarsa = SARSA(num_actions=env.NUM_ACTIONS, output_offset=env.output_states_offset,
-                  reward_map=env.reward_map, learning_rate=0.18)
-    forward = FORWARD(num_states=env.num_states, num_actions=env.NUM_ACTIONS,
-                      output_offset=env.output_states_offset, reward_map=env.reward_map,
-                      learning_rate=0.15)
-    
-    for _ in range(n_pretrain_episodes):
-        state = env.reset()
-        done = False
-        while not done:
-            action = np.random.choice(env.NUM_ACTIONS)
-            next_state, reward, done, _ = env.step((MDP.HUMAN_AGENT_INDEX, action))
-            next_action = np.random.choice(env.NUM_ACTIONS)
-            sarsa.update(state, action, reward, next_state)
-            current_goal = -1
-            forward.update(state, reward, action, next_state, current_goal)
-            from collections import defaultdict
-            T_values = defaultdict(lambda: np.zeros(env.NUM_ACTIONS))
-            for s in range(5):
-                T_values[s] = forward.T[s]
-            # print(f"T_values: {T_values}")
-            state = next_state
-    return sarsa, forward
- 
-def pretrain_with_csv(env, temp=0.1):
-    sarsa = SARSA(num_actions=env.NUM_ACTIONS, output_offset=env.output_states_offset,
-                  reward_map=env.reward_map, learning_rate=0.18, beta=temp)
-    forward = FORWARD(num_states=env.num_states, num_actions=env.NUM_ACTIONS,
-                      output_offset=env.output_states_offset, reward_map=env.reward_map,
-                      learning_rate=0.15, beta=temp)
-
-    behavior_df = pd.read_csv('./behav_data/dep_behav1_pre.csv', header=None)
-    behavior_df.columns = ['block', 'trial', 'block_setting', 'orig_S1', 'orig_S2', 'orig_S3',
-                           'A1', 'A2', 'RT(A1)', 'RT(A2)', 'onset(S1)', 'onset(S2)', 'onset(S3)',
-                           'onset(A1)', 'onset(A2)', 'reward', 'total_reward', 'goal_state']
-    
-    for _, row in behavior_df.iterrows():
-        s1, s2, s3 = int(row['orig_S1']) - 1, int(row['orig_S2']) - 1, int(row['orig_S3']) - 1
-        a1, a2 = int(row['A1']) - 1, int(row['A2']) - 1
-        final_reward = float(row['reward'])
-        is_flexible = int(row['goal_state']) == -1
-        current_goal = row['goal_state']
-
-        forward.update(s1, 0, a1, s2, current_goal)
-        sarsa.update(s1, a1, 0, s2)
-
-        forward.update(s2, final_reward, a2, s3, current_goal)
-        sarsa.update(s2, a2, final_reward, s3)
-
-    # print(f"Pretraining complete. Forward and SARSA agents are ready.")
-    # print(f"Forward Q-values: {forward.Q_fwd}")
-    # print(f"SARSA Q-values: {sarsa.Q_sarsa}")
-    # import time
-    # time.sleep(100)
-    return sarsa, forward
-
-def simulate_episode(episode_df, env, n_pretrain_episodes, arb_params):
-    """
-    Simulate a single episode, running `total_simul` simulations in parallel.
-    """
-    """
-    Run a single simulation of an episode.
-    This is used to parallelize `total_simul` runs inside `simulate_episode`.
-    """
-    threshold, rl_lr, max_trans_rate_mb_to_mf, max_trans_rate_mf_to_mb, temperature, est_lr = arb_params
-
-    # Pretrain agents
-    sarsa_sim, forward_sim = pretrain_agents(n_pretrain_episodes, env)
-    #sarsa_sim, forward_sim = pretrain_with_csv(env, temperature)
-    sarsa_sim.lr = est_lr
-    forward_sim.lr = est_lr
-
-    # Initialize arbitrator
-    arb = Arbitrator(AssocRelEstimator(rl_lr),
-                     BayesRelEstimator(thereshold=threshold),
-                     max_trans_rate_mb_to_mf=max_trans_rate_mb_to_mf,
-                     max_trans_rate_mf_to_mb=max_trans_rate_mf_to_mb,
-                     temperature=temperature)
-
-    sim_nll = 0.0
-    
-    prev_goal = None
-    for ep in episode_df:
-        for _, row in ep.iterrows():
-            s1, s2, s3 = int(row['orig_S1']) - 1, int(row['orig_S2']) - 1, int(row['orig_S3']) - 1
-            a1, a2 = int(row['A1']) - 1, int(row['A2']) - 1
-            final_reward = float(row['reward'])
-            is_flexible = int(row['goal_state']) == -1
-            current_goal = int(row['goal_state'])
-            if current_goal != -1:
-                current_goal = int(current_goal) - 1
-            backward_update = False
-
-            if prev_goal is None:
-                if is_flexible:
-                    arb.p_mb = 0.2
-                    arb.p_mf = 0.8
-                else:
-                    arb.p_mb = 0.8
-                    arb.p_mf = 0.2
-
-            if prev_goal is not None and current_goal != prev_goal:
-                try:
-                    backward_update = True
-                    if is_flexible:
-                        arb.p_mb = 0.2
-                        arb.p_mf = 0.8
-                    else:
-                        arb.p_mb = 0.8
-                        arb.p_mf = 0.2
-                except AttributeError:
-                    pass
-            prev_goal = current_goal  
-
-            # --- First decision step ---
-            if backward_update:
-                forward_sim.backward_update(current_goal)
-            mf_Q1, mb_Q1 = sarsa_sim.get_Q_values(s1), forward_sim.get_Q_values(s1)
-            integrated_Q1 = arb.get_Q_values(mf_Q1, mb_Q1)
-            exp_Q1 = np.exp(np.array(integrated_Q1) * temperature)
-            policy1 = exp_Q1 / np.sum(exp_Q1)
-            prob1 = max(policy1[a1], 1e-10)
-            sim_nll += -np.log(prob1)
-
-            spe1, rpe1 = forward_sim.update(s1, 0, a1, s2, current_goal), sarsa_sim.update(s1, a1, 0, s2)
-            arb.add_pe(rpe1, spe1)
-
-            # --- Second decision step ---
-            if backward_update:
-                forward_sim.backward_update(current_goal)
-            mf_Q2, mb_Q2 = sarsa_sim.get_Q_values(s2), forward_sim.get_Q_values(s2)
-            integrated_Q2 = arb.get_Q_values(mf_Q2, mb_Q2)
-            exp_Q2 = np.exp(np.array(integrated_Q2) * temperature)
-            policy2 = exp_Q2 / np.sum(exp_Q2)
-            prob2 = max(policy2[a2], 1e-10)
-            sim_nll += -np.log(prob2)
-
-            spe2 = forward_sim.update(s2, final_reward, a2, s3, current_goal)
-            rpe2 = sarsa_sim.update(s2, a2, final_reward, s3)
-            arb.add_pe(rpe2, spe2)
-    return sim_nll
-
-def compute_neg_log_likelihood_arbitrator(params, param_names, behavior_df, env, n_pretrain_episodes, n_simul):
+def compute_neg_log_likelihood_arbitrator(params, behavior_df, env, n_simul, pretrain_scenario, n_pretrain_episodes):
     """
     Compute total negative log likelihood over all episodes.
-    Uses multiprocessing for episode-level simulations.
     """
     arb_params = params  # Tuple of parameters
     
@@ -194,61 +61,85 @@ def compute_neg_log_likelihood_arbitrator(params, param_names, behavior_df, env,
     episode_df = [behavior_df.iloc[start:end+1].reset_index(drop=True) 
                 for start, end in zip(episode_starts, episode_ends)]
     
-    with mp.Pool(processes=min(n_simul, mp.cpu_count())) as pool:
-        results = pool.starmap(simulate_episode, [(episode_df, env, n_pretrain_episodes, arb_params)] * n_simul)
-    return sum(results)/n_simul
+    # Run simulations sequentially instead of in parallel
+    results = []
+    for _ in range(n_simul):
+        result = simulate_episode(episode_df, env, arb_params, pretrain_scenario, n_pretrain_episodes)
+        results.append(result)
     
+    return sum(results)/n_simul
+
+def run_single_optimization(args):
+    """Worker function for a single optimization run"""
+    run_id, behavior_df, env, param_bounds, sim_runs, pretrain_scenario, n_pretrain_episodes, max_iter = args
+    
+    LB = [bound[0] for bound in param_bounds]
+    UB = [bound[1] for bound in param_bounds]
+    
+    # Initialize parameters randomly within bounds
+    current_params = [np.random.uniform(LB[j], UB[j]) for j in range(len(LB))]
+    
+    objective = lambda params: compute_neg_log_likelihood_arbitrator(
+            params, behavior_df, env, sim_runs, pretrain_scenario, n_pretrain_episodes)
+    
+    error_count = 0
+    success = False
+    
+    while not success and error_count < 1000:
+        try:
+            x_opt, fval, exitflag, res = fminsearchbnd(objective, current_params, LB, UB, 
+                                                      options={'maxiter': max_iter, 'disp': False})
+            success = True
+        except Exception as e:
+            error_count += 1
+            # Reinitialize parameters randomly within the bounds
+            current_params = [np.random.uniform(LB[j], UB[j]) for j in range(len(LB))]
+            print(f"Optimization run {run_id} error: {e}. Reinitializing parameters. Count: {error_count}")
+            traceback.print_exc()
+    
+    if not success:
+        print(f"Run {run_id}: Failed to optimize after 1000 reinitializations.")
+        return (None, float('inf'))
+    
+    print(f"Run {run_id}: NLL = {fval:.8f}")
+    return (x_opt, fval)
 
 
 class ArbitratorModelFitter:
-    def __init__(self, n_optimization_runs=10, n_pretrain_episodes=2, max_iter=200, sim_runs=10):
+    def __init__(self, n_optimization_runs=10, n_pretrain_episodes=80, max_iter=200, sim_runs=10, pretrain_scenario='csv'):
         self.n_optimization_runs = n_optimization_runs
         self.n_pretrain_episodes = n_pretrain_episodes
         self.max_iter = max_iter
         self.sim_runs = sim_runs
+        self.pretrain_scenario = pretrain_scenario
         self.results = []
 
     def fit(self, behavior_df, env, param_bounds, param_names):
         """
         Fit the arbitrator model to behavioral data.
-        Uses a for-loop (not multiprocessing) to track progress.
+        Parallelize the optimization runs, not the simulations.
         """
         self.results = []
-        best_params = None
-        best_nll = float('inf')
-
-        LB = [bound[0] for bound in param_bounds]
-        UB = [bound[1] for bound in param_bounds]
-
-        current_params = [np.random.randint(1, 21) * ((UB[j] - LB[j]) / 20) + LB[j] for j in range(len(LB))]
-        objective = lambda params: compute_neg_log_likelihood_arbitrator(
-                params, param_names, behavior_df, env, self.n_pretrain_episodes, self.sim_runs)
-
-        for i in tqdm(range(self.n_optimization_runs), desc="Optimization Progress"):
-            error_count = 0
-            success = False
-            while not success and error_count < 1000:
-                try:
-                    x_opt, fval, exitflag, res = fminsearchbnd(objective, current_params, LB, UB, 
-                                                                options={'maxiter': self.max_iter, 'disp': False})
-                    success = True
-                except Exception as e:
-                    error_count += 1
-                    # Reinitialize parameters randomly within the bounds, similar to MATLAB's randi initialization.
-                    current_params = [np.random.uniform(LB[j], UB[j]) for j in range(len(LB))]
-                    print(f"Optimization error: {e}. Reinitializing parameters. Count: {error_count}")
-                    traceback.print_exc()
-            if not success:
-                print("Failed to optimize after 1000 reinitializations. Moving on.")
-    
-            current_params = x_opt
-            self.results.append((x_opt, fval))
-            print(f"Run {i+1}/{self.n_optimization_runs}: NLL = {fval:.4f}")
-            if fval < best_nll:
-                best_nll = fval
-                best_params = x_opt
-            print(f"  Best NLL so far: {best_nll:.4f}")
-            print(f"  Best params so far: {best_params}")
+        
+        # Prepare arguments for parallel optimization runs
+        args_list = [
+            (i, behavior_df, env, param_bounds, self.sim_runs, self.pretrain_scenario, self.n_pretrain_episodes, self.max_iter) 
+            for i in range(self.n_optimization_runs)
+        ]
+        
+        # Run optimizations in parallel
+        print(f"Starting {self.n_optimization_runs} parallel optimization runs...")
+        with mp.Pool(processes=min(self.n_optimization_runs, mp.cpu_count())) as pool:
+            self.results = list(tqdm(pool.imap(run_single_optimization, args_list), 
+                                    total=self.n_optimization_runs, 
+                                    desc="Optimization Progress"))
+        
+        # Find the best result
+        valid_results = [(x, f) for x, f in self.results if x is not None]
+        if not valid_results:
+            raise RuntimeError("All optimization runs failed")
+        
+        best_params, best_nll = min(valid_results, key=lambda x: x[1])
         
         self.best_result = ModelFitResult(
             parameters=dict(zip(param_names, best_params)),
@@ -261,19 +152,48 @@ class ArbitratorModelFitter:
         return self.best_result
 
 if __name__ == "__main__":
-    behavior_df = pd.read_csv('./behav_data/SUB001_BHV.csv', header=None)
+    args = argparser().parse_args()
+
+    behavior_df = pd.read_csv(f'./behav_data/{args.filename}.csv', header=None)
     behavior_df.columns = ['block', 'trial', 'block_setting', 'orig_S1', 'orig_S2', 'orig_S3',
                            'A1', 'A2', 'RT(A1)', 'RT(A2)', 'onset(S1)', 'onset(S2)', 'onset(S3)',
                            'onset(A1)', 'onset(A2)', 'reward', 'total_reward', 'goal_state']
     
     # param_bounds = [(0.1, 0.9), (0.01, 0.9), (0.1, 10.0), (0.1, 10.0), (0.01, 1.0), (0.01, 0.9)]
-    param_bounds = [(0.3, 0.7), (0.1, 0.35), (0.1, 20.0), (0.02, 20.0), (0.01, 0.5), (0.05, 0.2)]
+    param_bounds = [(0.3, 0.8), (0.01, 0.35), (0.1, 10.0), (0.1, 10.0), (0.01, 0.5), (0.01, 0.2)]
     param_names = ['threshold', 'rl_learning_rate', 'max_trans_rate_mb_to_mf', 'max_trans_rate_mf_to_mb', 'temperature', 'estimator_learning_rate']
     
     env = MDP()
     
-    fitter = ArbitratorModelFitter(n_optimization_runs=10, n_pretrain_episodes=80, sim_runs=10)
+    fitter = ArbitratorModelFitter(n_optimization_runs=args.n_optimization_runs, 
+                                   n_pretrain_episodes=args.n_pretrain_episodes, 
+                                   max_iter=args.max_iter, 
+                                   sim_runs=args.sim_runs,
+                                   pretrain_scenario=args.pretrain_scenario
+                                   )
     best_fit_result = fitter.fit(behavior_df, env, param_bounds, param_names)
     
     print("\nBEST PARAMETER SET FOUND:")
     print(best_fit_result)
+
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+
+    with open(f"{args.output_dir}/{args.filename}_arbitrator_fit_results.csv", 'w') as f:
+        f.write("Argparse Arguments:\n")
+        f.write(str(args))
+        f.write("\n")
+        f.write("\n")
+        f.write(str(best_fit_result))
+        f.write("\n")
+        f.write("Parameter Bounds:\n")
+        f.write(f"{param_names}\n")
+        f.write(f"{param_bounds}\n")
+        f.write("\n")
+        f.write("Parameter Values:\n")
+        f.write(f"{best_fit_result.parameters}\n")
+        f.write("\n")
+        f.write(f"Negative Log Likelihood: {best_fit_result.neg_log_likelihood:.4f}\n")
+        f.write(f"BIC Score: {best_fit_result.bic_score:.4f}\n")
+        f.write(f"AIC Score: {best_fit_result.aic_score:.4f}\n")
+        f.write("\n")
