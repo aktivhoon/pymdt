@@ -20,14 +20,12 @@ def pretrain_agents(n_pretrain_episodes, env):
         while not done:
             action = np.random.choice(env.NUM_ACTIONS)
             next_state, reward, done, _ = env.step((MDP.HUMAN_AGENT_INDEX, action))
-            next_action = np.random.choice(env.NUM_ACTIONS)
-            sarsa.update(state, action, reward, next_state)
-            current_goal = -1
-            forward.update(state, reward, action, next_state, current_goal, pretrain=True)
-            from collections import defaultdict
-            T_values = defaultdict(lambda: np.zeros(env.NUM_ACTIONS))
-            for s in range(5):
-                T_values[s] = forward.T[s]
+            if state == 0:
+                sarsa.update(state, action, 0, next_state)
+                forward.update(state, 0, action, next_state, -1, pretrain=True)
+            else:
+                sarsa.update(state, action, reward, next_state, -1)
+                forward.update(state, reward, action, next_state, -1, pretrain=True)
             state = next_state
     return sarsa, forward
  
