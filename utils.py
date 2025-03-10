@@ -122,8 +122,6 @@ def simulate_episode(episode_df, env, arb_params, pretrain_scenario='csv', n_pre
             arb.add_pe(rpe1, spe1)
             
             # --- Second decision step ---
-            if backward_update:
-                forward_sim.backward_update(current_goal)
             mf_Q2, mb_Q2 = sarsa_sim.get_Q_values(s2), forward_sim.get_Q_values(s2)
             integrated_Q2 = arb.get_Q_values(mf_Q2, mb_Q2)
             exp_Q2 = np.exp(np.array(integrated_Q2) * temperature)
