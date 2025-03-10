@@ -42,7 +42,9 @@ def transform(u, lb, ub, bclass):
         return ub - u**2
     elif bclass == 3:  # both bounds finite
         # MATLAB: x = lb + ((sin(u - 2*pi)+1)/2)*(ub - lb)
-        return lb + ((np.sin(u - 2*np.pi) + 1) / 2) * (ub - lb)
+        # return lb + ((np.sin(u - 2*np.pi) + 1) / 2) * (ub - lb)
+        transformed_value = lb + ((np.sin(u) + 1) / 2) * (ub - lb)
+        return max(lb, min(ub, transformed_value))
     else:  # fixed variable: return the fixed value (lb==ub)
         return lb
 
@@ -54,9 +56,19 @@ def inv_transform(x, lb, ub, bclass):
     if bclass == 0:
         return x
     elif bclass == 1:
-        return np.sqrt(max(x - lb, 0))
+        # Add handling for infeasible starting values
+        if x <= lb:
+            # Infeasible starting value. Use bound.
+            return 0
+        else:
+            return np.sqrt(x - lb)
     elif bclass == 2:
-        return np.sqrt(max(ub - x, 0))
+        # Add handling for infeasible starting values
+        if x >= ub:
+            # Infeasible starting value. Use bound.
+            return 0
+        else:
+            return np.sqrt(ub - x)
     elif bclass == 3:
         if x <= lb:
             return -np.pi/2
