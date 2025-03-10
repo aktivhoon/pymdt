@@ -59,9 +59,6 @@ def pretrain_with_csv(env, filename, temp=0.1):
 
 def simulate_episode(episode_df, env, arb_params, pretrain_scenario='csv', n_pretrain_episodes=80, filename=None):
     """
-    Simulate a single episode, running `total_simul` simulations in parallel.
-    """
-    """
     Run a single simulation of an episode.
     This is used to parallelize `total_simul` runs inside `simulate_episode`.
     """
