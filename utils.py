@@ -31,14 +31,14 @@ def pretrain_agents(n_pretrain_episodes, env):
             state = next_state
     return sarsa, forward
  
-def pretrain_with_csv(env, temp=0.1):
+def pretrain_with_csv(env, filename, temp=0.1):
     sarsa = SARSA(num_actions=env.NUM_ACTIONS, output_offset=env.output_states_offset,
                   reward_map=env.reward_map, learning_rate=0.18, beta=temp)
     forward = FORWARD(num_states=env.num_states, num_actions=env.NUM_ACTIONS,
                       output_offset=env.output_states_offset, reward_map=env.reward_map,
                       learning_rate=0.15, beta=temp)
 
-    behavior_df = pd.read_csv('./behav_data/dep_behav1_pre.csv', header=None)
+    behavior_df = pd.read_csv(f'./behav_data/{filename}_pre.csv', header=None)
     behavior_df.columns = ['block', 'trial', 'block_setting', 'orig_S1', 'orig_S2', 'orig_S3',
                            'A1', 'A2', 'RT(A1)', 'RT(A2)', 'onset(S1)', 'onset(S2)', 'onset(S3)',
                            'onset(A1)', 'onset(A2)', 'reward', 'total_reward', 'goal_state']
@@ -57,7 +57,7 @@ def pretrain_with_csv(env, temp=0.1):
 
     return sarsa, forward
 
-def simulate_episode(episode_df, env, arb_params, pretrain_scenario='csv', n_pretrain_episodes=80):
+def simulate_episode(episode_df, env, arb_params, pretrain_scenario='csv', n_pretrain_episodes=80, filename=None):
     """
     Simulate a single episode, running `total_simul` simulations in parallel.
     """
@@ -69,7 +69,7 @@ def simulate_episode(episode_df, env, arb_params, pretrain_scenario='csv', n_pre
 
     # Pretrain agents
     if pretrain_scenario == 'csv':
-        sarsa_sim, forward_sim = pretrain_with_csv(env, temperature)
+        sarsa_sim, forward_sim = pretrain_with_csv(env, filename, temperature)
     else:
         sarsa_sim, forward_sim = pretrain_agents(n_pretrain_episodes, env)
 
