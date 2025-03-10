@@ -53,20 +53,20 @@ class MDP(gym.Env):
                 1: [3, 4]       # Action 1 leads to states 3 or 4
             },
             1: {  # From state 1
-                0: [7, 8],      # Action 0 leads to states 7 or 8
-                1: [8, 5]       # Action 1 leads to states 8 or 5
+                0: [6, 7],      # Action 0 leads to states 6 or 7
+                1: [7, 8]       # Action 1 leads to states 7 or 8
             },
             2: {  # From state 2
-                0: [8, 5],      # Action 0 leads to states 8 or 5
-                1: [7, 5]       # Action 1 leads to states 7 or 5
+                0: [7, 8],      # Action 0 leads to states 7 or 8
+                1: [6, 8]       # Action 1 leads to states 6 or 8
             },
             3: {  # From state 3
-                0: [7, 6],      # Action 0 leads to states 7 or 6
-                1: [6, 5]       # Action 1 leads to states 6 or 5
+                0: [6, 5],      # Action 0 leads to states 6 or 5
+                1: [5, 8]       # Action 1 leads to states 5 or 8
             },
             4: {  # From state 4
-                0: [7, 5],      # Action 0 leads to states 7 or 5
-                1: [5, 6]       # Action 1 leads to states 5 or 6
+                0: [6, 8],      # Action 0 leads to states 6 or 8
+                1: [8, 5]       # Action 1 leads to states 8 or 5
             }
         }
         
