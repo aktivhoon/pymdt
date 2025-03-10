@@ -32,14 +32,16 @@ class SARSA:
         if next_action is None:
             next_action = self.action(next_state)
         rpe = self._get_rpe(reward, action_taken, next_action, state, next_state)
-            
         self.Q_sarsa[state][action_taken] += self.learning_rate * rpe
         return rpe
 
     def _get_rpe(self, reward, action_taken, next_action, state, next_state):
-        return (reward + 
-                self.discount_factor * self.Q_sarsa[next_state][next_action] - 
-                self.Q_sarsa[state][action_taken])
+        if next_action == -1:
+            return reward - self.Q_sarsa[state][action_taken]
+        else:
+            return (reward + 
+                    self.discount_factor * self.Q_sarsa[next_state][next_action] - 
+                    self.Q_sarsa[state][action_taken])
 
     def reset(self):
         self.Q_sarsa = defaultdict(lambda: np.zeros(self.num_actions))

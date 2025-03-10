@@ -72,7 +72,12 @@ class FORWARD:
         for candidate in range(self.num_states):
             if candidate == next_state:
                 continue
-            adding = self.T[state][action][candidate] * (self.observe_reward[candidate] + self.discount_factor * np.max(self.Q_fwd[candidate]))
+            if pretrain or current_goal == -1 or current_goal == candidate:
+                reward = self.observe_reward[candidate]
+            else:
+                reward = 0
+                
+            adding = self.T[state][action][candidate] * (reward + self.discount_factor * np.max(self.Q_fwd[candidate]))
             temp_sum += adding
         self.Q_fwd[state][action] = temp_sum
 
@@ -113,7 +118,6 @@ class FORWARD:
                         reward = self.observe_reward[next_state]
                     else:
                         reward = 0
-                    # print("state: ", state, "action: ", action, "next_state: ", next_state, "reward: ", reward, "T: ", self.T[state][action][next_state], "Q_fwd: ", self.Q_fwd[next_state])
                     tmp += self.T[state][action][next_state] * (reward + self.discount_factor * np.max(self.Q_fwd[next_state]))
                 self.Q_fwd[state][action] = tmp
         self.policy_fn = lambda s: softmax(self.Q_fwd[s], self.beta)

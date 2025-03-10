@@ -2,6 +2,8 @@
     Sept 27, 2018
     modified by Sanghwan Kim <kshwan0227@kaist.ac.kr>
     May 20, 2019
+    modified by Younghoon Kim <aktivhoon@gmail.com>
+    Feb 24, 2025
 """
 
 import numpy as np
@@ -90,13 +92,14 @@ class AssocRelEstimator:
     LEARNING_RATE = 0.2
     MAX_PE        = 40
     def __init__(self, learning_rate=LEARNING_RATE, pe_max=MAX_PE):
+        self.pe_estimate   = 0
         self.chi           = 0
         self.learning_rate = learning_rate
         self.pe_max        = pe_max
 
     def add_pe(self, pe):
-        delta_chi = self.learning_rate * ((1 - abs(pe) / self.pe_max) - self.chi)
-        self.chi += delta_chi
+        self.pe_estimate += self.learning_rate * (abs(pe) - self.pe_estimate)
+        self.chi = 1 - self.pe_estimate / self.pe_max
         return self.chi
 
     def get_reliability(self):
@@ -111,8 +114,8 @@ class Arbitrator:
     SOFTMAX_TEMPERATURE          = 0.2
     MAX_TRANSITION_RATE_MF_TO_MB = 1.0
     MAX_TRANSITION_RATE_MB_TO_MF = 1.0
-    MF_TO_MB_BOUNDARY_CONDITION  = 0.01
-    MB_TO_MF_BOUNDARY_CONDITION  = 0.1 # smaller than mf-to-mb leads to mf control eventually
+    MF_TO_MB_BOUNDARY_CONDITION  = 0.01 # alpha(1)
+    MB_TO_MF_BOUNDARY_CONDITION  = 0.1 # beta(1) larger than mf-to-mb leads to mf control eventually
     EPISODE_NUMBER = 0
     def __init__(self, mf_rel_estimator=None, mb_rel_estimator=None, amp_mf_to_mb=AMPLITUDE_MF_TO_MB,
                  amp_mb_to_mf=AMPLITUDE_MB_TO_MF, temperature=SOFTMAX_TEMPERATURE, p_mb=P_MB,
@@ -141,14 +144,17 @@ class Arbitrator:
         self.episode_number = episode_number
 
     def add_pe(self, rpe, spe):
-        chi_mf = self.mf_rel_estimator.add_pe(rpe)  # reliability of model free
-        chi_mb = self.mb_rel_estimator.add_pe(spe)  # reliability of model based
+        self.mf_rel_estimator.add_pe(rpe)  # reliability of model free
+        self.mb_rel_estimator.add_pe(spe)  # reliability of model based
+        
+        chi_mf = self.mf_rel_estimator.get_reliability()
+        chi_mb = self.mb_rel_estimator.get_reliability()
+        
         alpha = self.A_alpha / (1 + exp(self.B_alpha * chi_mf))  # transition rate MF->MB
         beta = self.A_beta / (1 + exp(self.B_beta * chi_mb))  # transition rate MB->MF
+        
         tau = 1.0/(alpha + beta)
-        #beta *= self.amp_mb_to_mf / sum_amp
-        # d_p_mb = alpha * (1 - self.p_mb) - beta * self.p_mb
-        # self.p_mb += alpha * (1 - self.p_mb) - beta * self.p_mb
+        
         p_mb_inf = alpha * tau
         self.p_mb = p_mb_inf + (self.p_mb - p_mb_inf) * exp(-self.time_step/tau)
         if self.MB_ONLY: self.p_mb = 0.9999
@@ -168,14 +174,12 @@ class Arbitrator:
         """
         Q = []
         assert len(mf_Q_values) == len(mb_Q_values), "Q value length not match"
-        # (Modified) Compute integrated Q values.
+        
         Q = np.array(mf_Q_values) * self.p_mf + np.array(mb_Q_values) * self.p_mb
         
-        # (Modified) Compute softmax probabilities over all actions.
         exp_Q = np.exp(Q * self.temperature)
         probs = exp_Q / np.sum(exp_Q)
         
-        # (Modified) Sample an action from the full probability distribution.
         action = np.random.choice(len(Q), p=probs)
         return action
 
