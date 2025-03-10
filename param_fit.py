@@ -81,13 +81,13 @@ def run_single_optimization(args):
     """Worker function for a single optimization run"""
     run_id, behavior_df, env, param_bounds, sim_runs, pretrain_scenario, n_pretrain_episodes, max_iter, filename, progress_queue = args
     
-    # No longer printing "Starting optimization run X"
+    # Create a local console object for this process
+    console = Console()
     
     LB = [bound[0] for bound in param_bounds]
     UB = [bound[1] for bound in param_bounds]
     
     # Initialize parameters randomly within bounds - Use different random seed for each run
-    # FIX #1: Use run_id as part of the seed to ensure different initializations
     np.random.seed(int(time.time()) + run_id) 
     current_params = [np.random.uniform(LB[j], UB[j]) for j in range(len(LB))]
     
@@ -166,9 +166,8 @@ def run_single_optimization(args):
                     'nll': fval,
                     'status': 'completed'
                 })
-                print(f"Run {run_id}: Completed after {iter_count[0]} iterations with NLL = {fval:.8f}")
             except Exception as e:
-                print(f"Run {run_id}: Failed to report completion: {e}")
+                console.print(f"[bold red]Run {run_id}:[/bold red] Failed to report completion: {e}")
             
         except Exception as e:
             error_count += 1
@@ -185,7 +184,7 @@ def run_single_optimization(args):
             except Exception:
                 pass
             
-            print(f"Run {run_id}: Error: {e}. Reinitializing parameters. Count: {error_count}")
+            console.print(f"[bold red]Run {run_id}:[/bold red] Error in optimization: {e}")
             traceback.print_exc()
     
     if not success:
@@ -197,10 +196,9 @@ def run_single_optimization(args):
             })
         except Exception:
             pass
-        print(f"Run {run_id}: Failed to optimize after 1000 reinitializations.")
+        console.print(f"[bold red]Run {run_id}:[/bold red] Failed to optimize after 1000 reinitializations.")
         return (None, float('inf'))
     
-    print(f"Run {run_id}: Completed with NLL = {fval:.8f}")
     return (x_opt, fval)
 
 
