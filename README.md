@@ -90,7 +90,7 @@ The script produces a CSV file with:
 
 When running the script, you'll see a live progress display similar to the one below:
 
-![Parameter Fitting Progress Display](https://github.com/user-attachments/assets/1d6d4563-85f1-4af1-aae1-2a8602ba21bd)
+![Parameter Fitting Progress Display](https://github.com/user-attachments/assets/6f84cac1-107f-4aca-9523-111dbe3f9497)
 
 The table shows:
 
