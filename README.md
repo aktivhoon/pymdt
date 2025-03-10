@@ -26,6 +26,16 @@ Python Implementation of two step MDT, with fitting algorithm
 - [x] Confirmed that the fitting algorithm is working
 - [x] Exactly same results as the MATLAB code
 
+## Installation
+
+Before running any scripts, install the required dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Note: The code requires Python 3.7 or newer due to the use of dataclasses with type annotations.
+
 ## Parameter Fitting (param_fit.py)
 
 The `param_fit.py` script implements a parallel optimization algorithm for fitting the arbitrator model to behavioral data. It uses multiple optimization runs to avoid local minima and find the best set of parameters.
