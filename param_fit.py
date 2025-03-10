@@ -24,10 +24,10 @@ def argparser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--filename', type=str, required=True, help='Name of the behavior data file: must have .csv extension, with _pre.csv as well for pretraining')
     parser.add_argument('--n_optimization_runs', type=int, default=10, help='Number of optimization runs')
-    parser.add_argument('--n_pretrain_episodes', type=int, default=2, help='Number of pretraining episodes')
+    parser.add_argument('--n_pretrain_episodes', type=int, default=80, help='Number of pretraining episodes')
     parser.add_argument('--max_iter', type=int, default=200, help='Maximum number of iterations for optimization')
     parser.add_argument('--sim_runs', type=int, default=10, help='Number of simulations per episode')
-    parser.add_argument('--pretrain_scenario', type=str, default='csv', help='Pretraining scenario: csv or agents')
+    parser.add_argument('--pretrain_scenario', type=str, default='sim', choices=['csv', 'sim'], help='Pretraining scenario: csv or sim')
     parser.add_argument('--output_dir', type=str, default='./results', help='Output directory for results')
 
     return parser
